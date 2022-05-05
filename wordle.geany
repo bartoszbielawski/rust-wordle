@@ -19,7 +19,7 @@ indent_mode=2
 
 [project]
 name=wordle
-base_path=/home/caladan/wordle/
+base_path=/home/caladan/rust-wordle/
 description=
 file_patterns=*;
 
@@ -29,10 +29,7 @@ long_line_column=72
 
 [files]
 current_page=0
-FILE_NAME_0=278;Rust;0;EUTF-8;1;1;0;%2Fhome%2Fcaladan%2Fwordle%2Fsrc%2Fmain.rs;0;4
-FILE_NAME_1=0;None;0;EUTF-8;1;1;0;%2Fhome%2Fcaladan%2Fwordle%2FCargo.lock;0;4
-FILE_NAME_2=207;None;0;EUTF-8;1;1;0;%2Fhome%2Fcaladan%2Fwordle%2FCargo.toml;0;4
-FILE_NAME_3=65;None;0;EUTF-8;1;1;0;%2Fhome%2Fcaladan%2Fwordle%2Fdict.txt;0;4
+FILE_NAME_0=567;Rust;0;EUTF-8;1;1;0;%2Fhome%2Fcaladan%2Frust-wordle%2Fsrc%2Fmain.rs;0;4
 
 [VTE]
 last_dir=/home/caladan
