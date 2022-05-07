@@ -181,7 +181,7 @@ fn load_words(filename: &str) -> Option<Vec<String>>
 	let words: Vec<String> = data.lines().
 		filter(|x| x.len() == 5).
 		filter(|x| x.chars().all(char::is_alphabetic)).
-		map(|x|    x.to_lowercase()).
+		map(|x|    x.to_ascii_uppercase()).
 		filter(|x| x.is_ascii()).
 		collect();
 	
@@ -210,7 +210,7 @@ fn main()
 				.read_line(&mut guess)
 				.expect("Failed to read line");
 
-			guess = guess.trim().to_string();
+			guess = guess.trim().to_string().to_ascii_uppercase();
 			break guess;
 		};
 
