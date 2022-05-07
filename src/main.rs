@@ -1,13 +1,15 @@
 use rand::seq::SliceRandom; 
 use counter::Counter;
 use std::iter::zip;
-use termion::color;
-use std::io;
+
+use std::io::{self, Write};
 use std::fs;
 use std::collections::HashMap;
 use colored::Colorize;
+use itertools::izip;
+use std::fmt;
 
-#[derive(PartialEq,Debug)]
+#[derive(PartialEq,Debug,Clone,Copy)]
 enum LetterState
 {
 	Unknown,
@@ -16,11 +18,13 @@ enum LetterState
 	RightPlace
 }
 
+#[derive(Debug)]
 enum GuessResult
 {
+	UnknownWord,
 	WrongInput,
-	Try(GuessContent),
-	Won(GuessContent),
+	Try(Guess),
+	Won(u32),
 	Lost(String),
 }
 
@@ -31,32 +35,62 @@ struct Game
 	hidden_word: String,
 	letter_counter: Counter::<char>,
 	try_no: u32,
-	finished: bool,
 }
 
-struct GuessContent
+#[derive(Debug)]
+struct Guess
 {
 	try_no: u32,
-	word_letter_states: Vec<LetterState>,
+	guess: String,
+	word_letter_states: [LetterState; 5]
 }
+
+
+impl std::fmt::Display for Guess
+{
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+	{
+		let mut s = write!(f, "Try {} => ", self.try_no);
+		for (ch, state) in zip(self.guess.chars(), self.word_letter_states)
+		{
+			let color: colored::Color = match state
+			{
+				LetterState::Unknown => colored::Color::BrightWhite,
+				LetterState::NotPresent => colored::Color::White,
+				LetterState::RightPlace => colored::Color::BrightGreen,
+				LetterState::WrongPlace => colored::Color::BrightYellow,
+			};
+			s = write!(f, "{}", ch.to_string().color(color));
+		}
+		return s;
+	}
+}
+
 
 
 impl Game
 {
 	fn new(words: Vec<String>) -> Self
 	{
-		let mut game = Game {word_list: words, 
-				letter_states: HashMap::<char, LetterState>::new(), 
-				hidden_word: "".to_string(), 
-				letter_counter: Counter::<char>::new(),
-				try_no: 0, 
-				finished: false};
-			
 		let mut rng = rand::thread_rng();
-		
-		game.hidden_word = game.word_list.choose(&mut rng).unwrap().to_string();  
-		game.letter_counter.update(game.hidden_word.chars());
-		
+		let hidden_word = words.choose(&mut rng).unwrap().to_string();
+		let hidden_word_chars = hidden_word.chars();
+		let letter_counter = Counter::<char>::from_iter(hidden_word_chars);
+
+		let mut letter_states = HashMap::<char, LetterState>::new();
+		for ch in 'a'..='z'
+		{
+			letter_states.insert(ch, LetterState::Unknown);
+		}
+
+
+		let mut game = Game {
+				word_list: words,
+				letter_states,
+				hidden_word,
+				letter_counter,
+				try_no: 1};
+
 		return game;
 	}
 	
@@ -67,12 +101,17 @@ impl Game
 			return false;
 		}
 		
+
+		return true;
+	}
+
+	fn word_known(&self, word: &String) -> bool
+	{
 		if !self.word_list.contains(&word)
 		{
 			return false;
 		}
-		
-		return true;
+		true
 	}
 	
 	fn guess_word(&mut self, guess: &String) -> GuessResult
@@ -81,90 +120,57 @@ impl Game
 		{
 			return GuessResult::WrongInput;
 		}
-			
+
+		if !self.word_known(guess)
+		{
+			return GuessResult::UnknownWord;
+		}
+
+		if self.hidden_word.eq(guess)
+		{
+			return GuessResult::Won(self.try_no);
+		}
+
 		let mut letter_counter = self.letter_counter.clone();
+		let mut wls: [LetterState; 5] = [LetterState::NotPresent; 5];
 		
-		let mut wls = vec![(); 5]; 
-		
-		for i in 0..=4
+		for (i, ch1, ch2) in izip!(0..=4, guess.chars(), self.hidden_word.chars())
 		{
-			println!("{}", i);
-		}
-		
-		for (ch1, ch2) in zip(guess.chars(), self.hidden_word.chars())
-		{
-			let chars_equal = ch1 == ch2;
-			if chars_equal
+			if ch1 != ch2
 			{
-				
+				continue;
 			}
-		}
-		
-		
-		GuessResult::Lost(self.hidden_word)
-	}
-}
 
-
-fn guess_word(hidden: &str, guess: &str, letter_states: &mut HashMap::<char, LetterState>) -> bool
-{
-	let mut hidden_counter = Counter::<char>::new();
-	hidden_counter.update(hidden.chars());
-	//println!("{:?}", hidden_counter);
-	
-	if hidden.len() != guess.len()
-	{
-		return false;
-	}
-	
-	if guess == hidden
-	{
-		return true;
-	}
-	
-	//a variable for state of all letters in the word
-	//HERE
-	
-	for (ch1, ch2) in zip(guess.chars(), hidden.chars())
-	{
-		let chars_equal = ch1 == ch2;
-		
-		//all letters were already created
-		let letter_state = letter_states.get_mut(&ch1).unwrap();
-		if !chars_equal
-		{
-			continue;
+			//letters are equal
+			wls[i] = LetterState::RightPlace;
+			letter_counter.subtract(ch1.to_string().chars())
 		}
-		
-		print!("{}{}", color::Fg(color::LightGreen), ch1);
-		hidden_counter.subtract(ch1.to_string().chars());		//remove one
-		*letter_state = LetterState::RightPlace;
-	}
-	
-	for (ch1, ch2) in zip(guess.chars(), hidden.chars())
-	{
-		let letter_present = hidden_counter.contains_key(&ch1);
-		if letter_present
+
+		for (i, ch1) in zip(0..=4, guess.chars())
 		{
-			print!("{}{}", color::Fg(color::LightYellow), ch1);
+			let letter_present = letter_counter.contains_key(&ch1);
+			if !letter_present
+			{
+				continue;
+			}
+
+			wls[i] = LetterState::WrongPlace;
 			//remove counter as well so that it doesn't show again
 			//somewhere else
-			hidden_counter.subtract(ch1.to_string().chars());
-			if *letter_state != LetterState::RightPlace
-			{
-				*letter_state = LetterState::WrongPlace;
-			}
-			continue;
+			letter_counter.subtract(ch1.to_string().chars());
 		}
-		
-		if (*letter_state == LetterState::WrongPlace) || (*letter_state == LetterState::RightPlace)
+
+		if self.try_no >= 6
 		{
-			*letter_state = LetterState::NotPresent;
+			return GuessResult::Lost(self.hidden_word.clone());
 		}
-		print!("{}{}", color::Fg(color::Reset), ch1);
+
+		let g = Guess {try_no: self.try_no, guess: guess.to_string(), word_letter_states: wls};
+
+		self.try_no += 1;
+
+		return GuessResult::Try(g);
 	}
-	println!("{}", color::Fg(color::Reset));
-	return all_found;
 }
 
 
@@ -189,73 +195,38 @@ fn main()
 {
 	let words = load_words("dict.txt").unwrap();
 	
-	let mut rng = rand::thread_rng();
-	let hidden = words.choose(&mut rng).unwrap();
+	let mut g = Game::new(words);
 
-	let mut letter_state = HashMap::new();
-		
-	for ch in 'a'..'z'
+	while true
 	{
-		letter_state.insert(ch, LetterState::Unknown);
-	}
-	
-	let mut guessed = false;
-	
-	for i in 1..6
-	{
-		println!("Try {}: ", i);		
-		
 		let guess = loop
 		{
+			print!("Try {} => ", g.try_no);
+			io::stdout().flush();
+
 			let mut guess = String::new();
 
 			io::stdin()
 				.read_line(&mut guess)
 				.expect("Failed to read line");
-			
+
 			guess = guess.trim().to_string();
-			
-			if guess.len() != 5
-			{
-				println!("We need exactly 5 letters...");
-				continue;
-			}
-			
-			if !words.contains(&guess)
-			{
-				println!("Word not found!");
-				continue;
-			}
-			 
 			break guess;
 		};
-		
-		if guess_word(&hidden, guess.trim(), &mut letter_state)
+
+		let r = g.guess_word(&guess);
+
+		match r
 		{
-			println!("You have guessed the word!");
-			guessed = true;
-			break;
-		}
-		
-		print!("\t\t");
-		for ch in 'a'..'z'
-		{
-			let ls = letter_state.get(&ch).unwrap();
-			let color: colored::Color = match ls
-			{
-				LetterState::Unknown => colored::Color::White,
-				LetterState::NotPresent => colored::Color::Black,
-				LetterState::RightPlace => colored::Color::BrightGreen,
-				LetterState::WrongPlace => colored::Color::BrightYellow,
-			}; 
-			print!("{}", ch.to_string().color(color));
-		}
-		println!();
+			GuessResult::UnknownWord => println!("The word is not known!"),
+			GuessResult::Try(x) => println!("{}", x),
+			GuessResult::WrongInput => println!("Wrong input!"),
+			GuessResult::Lost(s) => {
+				println!("The word you were trying to guess was {}", s.color(colored::Color::BrightGreen));
+				break;},
+			GuessResult::Won(_x) => {
+				println!("You won!");
+				break},
+		};
 	}
-	
-	if !guessed
-	{
-		println!("The word you've been trying to find is '{}'", hidden);
-	}
-	
 }
