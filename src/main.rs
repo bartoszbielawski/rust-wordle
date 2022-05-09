@@ -8,22 +8,24 @@ use std::collections::HashMap;
 use colored::Colorize;
 use itertools::izip;
 use std::fmt;
+use std::cmp;
 
-#[derive(PartialEq,Debug,Clone,Copy)]
+
+#[derive(PartialEq,Eq,PartialOrd,Ord,Debug,Clone,Copy)]
 enum LetterState
 {
-	Unknown,
-	NotPresent,
-	WrongPlace,
-	RightPlace
+	Unknown = 0,
+	NotPresent = 1,
+	WrongPlace = 2,
+	RightPlace = 3
 }
 
 #[derive(Debug)]
-enum GuessResult
+enum GuessResult<'a>
 {
 	UnknownWord,
 	WrongInput,
-	Try(Guess),
+	Try(Guess<'a>),
 	Won(u32),
 	Lost(String),
 }
@@ -38,15 +40,16 @@ struct Game
 }
 
 #[derive(Debug)]
-struct Guess
+struct Guess<'a>
 {
 	try_no: u32,
 	guess: String,
-	word_letter_states: [LetterState; 5]
+	word_letter_states: [LetterState; 5],
+	letter_states: &'a HashMap<char, LetterState>,
 }
 
 
-impl std::fmt::Display for Guess
+impl<'a> std::fmt::Display for Guess<'a>
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
 	{
@@ -54,6 +57,20 @@ impl std::fmt::Display for Guess
 		for (ch, state) in zip(self.guess.chars(), self.word_letter_states)
 		{
 			let color: colored::Color = match state
+			{
+				LetterState::Unknown => colored::Color::BrightWhite,
+				LetterState::NotPresent => colored::Color::White,
+				LetterState::RightPlace => colored::Color::BrightGreen,
+				LetterState::WrongPlace => colored::Color::BrightYellow,
+			};
+			s = write!(f, "{}", ch.to_string().color(color));
+		}
+
+		s = write!(f, "\t\t");
+
+		for ch in 'A'..='Z'
+		{
+			let color: colored::Color = match self.letter_states.get(&ch).unwrap()
 			{
 				LetterState::Unknown => colored::Color::BrightWhite,
 				LetterState::NotPresent => colored::Color::White,
@@ -76,13 +93,13 @@ impl Game
 		let hidden_word = words.choose(&mut rng).unwrap().to_string();
 		let hidden_word_chars = hidden_word.chars();
 		let letter_counter = Counter::<char>::from_iter(hidden_word_chars);
-
 		let mut letter_states = HashMap::<char, LetterState>::new();
-		for ch in 'a'..='z'
+
+
+		for ch in 'A'..='Z'
 		{
 			letter_states.insert(ch, LetterState::Unknown);
 		}
-
 
 		let mut game = Game {
 				word_list: words,
@@ -96,22 +113,12 @@ impl Game
 	
 	fn word_valid(&self, word: &String) -> bool
 	{
-		if word.len() != 5
-		{
-			return false;
-		}
-		
-
-		return true;
+		word.len() == 5
 	}
 
 	fn word_known(&self, word: &String) -> bool
 	{
-		if !self.word_list.contains(&word)
-		{
-			return false;
-		}
-		true
+		self.word_list.contains(&word)
 	}
 	
 	fn guess_word(&mut self, guess: &String) -> GuessResult
@@ -143,7 +150,10 @@ impl Game
 
 			//letters are equal
 			wls[i] = LetterState::RightPlace;
-			letter_counter.subtract(ch1.to_string().chars())
+			letter_counter.subtract(ch1.to_string().chars());
+			self.letter_states.
+				 entry(ch1).
+				 and_modify(|e| *e = cmp::max(*e, LetterState::RightPlace));
 		}
 
 		for (i, ch1) in zip(0..=4, guess.chars())
@@ -151,6 +161,8 @@ impl Game
 			let letter_present = letter_counter.contains_key(&ch1);
 			if !letter_present
 			{
+				self.letter_states.entry(ch1).
+					and_modify(|e| *e = cmp::max(*e, LetterState::NotPresent));
 				continue;
 			}
 
@@ -158,6 +170,8 @@ impl Game
 			//remove counter as well so that it doesn't show again
 			//somewhere else
 			letter_counter.subtract(ch1.to_string().chars());
+			self.letter_states.entry(ch1).
+				and_modify(|e| *e = cmp::max(*e, LetterState::WrongPlace));
 		}
 
 		if self.try_no >= 6
@@ -165,7 +179,11 @@ impl Game
 			return GuessResult::Lost(self.hidden_word.clone());
 		}
 
-		let g = Guess {try_no: self.try_no, guess: guess.to_string(), word_letter_states: wls};
+		let g = Guess {
+			try_no: self.try_no,
+			guess: guess.to_string(),
+			word_letter_states: wls,
+			letter_states: &self.letter_states};
 
 		self.try_no += 1;
 
